@@ -2,11 +2,11 @@
 
 set -e
 
-REPO="https://raw.githubusercontent.com/n0tpurplx/Purplecli/main"
+REPO="https://raw.githubusercontent.com/n-0tpurplx/Purplxclx/main"
 INSTALL_DIR="$HOME/.local/bin"
-INSTALL_FILE="$INSTALL_DIR/PurpleCli"
+INSTALL_FILE="$INSTALL_DIR/purple"
 
-echo "Installing PurpleCli..."
+echo "Installing PurplxClx..."
 echo ""
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -51,11 +51,8 @@ case ":$PATH:" in
 esac
 
 echo ""
-echo "✓ PurpleCli installed."
-echo "✓ OpenRouter supported."
-echo "✓ Google Gemini supported."
-echo "✓ OpenAI supported."
+echo "✓ PurplxClx installed."
 echo ""
 echo "Run:"
-echo "  PurpleCli --setup"
+echo "  purple --setup"
 echo ""
