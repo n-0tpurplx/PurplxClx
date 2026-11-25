@@ -253,13 +253,13 @@ Install it using:
 Install PurpleCli using the installation script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/n0tpurplx/Purplecli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/n-0tpurplx/PurplxClx/refs/heads/main/install.sh | sh
 ```
 
 After installation:
 
 ```bash
-PurpleCli
+purple
 ```
 
 If the command is not immediately available, restart your terminal or make sure the installation directory is included in your `PATH`.
