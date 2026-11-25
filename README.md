@@ -2,6 +2,7 @@
 
 <p align="center">
   <strong>A lightweight AI coding agent for your terminal.</strong>
+  <strong>This is a fork of the original Purplecli which is no longer maintaned.</strong>
 </p>
 
 <p align="center">
