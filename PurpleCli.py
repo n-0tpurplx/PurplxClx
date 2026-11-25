@@ -1,15 +1,18 @@
+
 #!/usr/bin/env python3
 
 import argparse
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 
 CONFIG_DIR = Path.home() / ".purplecli"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+SKILLS_DIR = CONFIG_DIR / "skills"
 
 SYSTEM_PROMPT = """You are PurpleCli, a coding agent running in a user's terminal.
 
@@ -42,6 +45,8 @@ PROVIDER_NAMES = {
 }
 
 
+# Configuration
+
 def load_config():
     if not CONFIG_FILE.exists():
         return {}
@@ -52,9 +57,10 @@ def load_config():
     except (json.JSONDecodeError, OSError):
         return {}
 
-    # Migrate old config format (top-level api_key) to new format (keys dict)
     if "api_key" in config and "keys" not in config:
-        config["keys"] = {config["provider"]: config["api_key"]}
+        config["keys"] = {
+            config["provider"]: config["api_key"]
+        }
         del config["api_key"]
         save_config(config)
 
@@ -81,6 +87,7 @@ def get_api_key(config, provider):
 
 def prompt_for_key(provider):
     print()
+
     if provider == "openrouter":
         key = input("OpenRouter API key: ").strip()
     elif provider == "gemini":
@@ -107,21 +114,11 @@ def setup():
     while True:
         choice = input("Provider [1/2/3]: ").strip()
 
-        if choice == "1":
-            provider = "openrouter"
-            break
-
-        if choice == "2":
-            provider = "gemini"
-            break
-
-        if choice == "3":
-            provider = "openai"
+        if choice in ("1", "2", "3"):
+            provider = PROVIDERS[int(choice) - 1]
             break
 
         print("Please choose 1, 2, or 3.")
-
-    print()
 
     key = prompt_for_key(provider)
 
@@ -152,45 +149,52 @@ def switch_provider():
     print("Switch AI Provider")
     print("------------------")
     print()
-    print(f"Current provider: {PROVIDER_NAMES.get(current, current) if current != 'none' else 'none'}")
+
+    current_name = PROVIDER_NAMES.get(current, current)
+    print(f"Current provider: {current_name}")
     print()
     print("Choose a provider:")
 
-    for i, prov in enumerate(PROVIDERS, 1):
-        stored = "✓ key stored" if get_api_key(config, prov) else "✗ no key"
-        marker = " *" if prov == current else ""
-        print(f"  {i}. {PROVIDER_NAMES[prov]}  [{stored}]{marker}")
+    for i, provider in enumerate(PROVIDERS, 1):
+        stored = (
+            "✓ key stored"
+            if get_api_key(config, provider)
+            else "✗ no key"
+        )
+
+        marker = " *" if provider == current else ""
+
+        print(
+            f"  {i}. {PROVIDER_NAMES[provider]} "
+            f"[{stored}]{marker}"
+        )
 
     print()
 
     while True:
         choice = input("Provider [1/2/3]: ").strip()
 
-        if choice == "1":
-            new_provider = "openrouter"
-            break
-        elif choice == "2":
-            new_provider = "gemini"
-            break
-        elif choice == "3":
-            new_provider = "openai"
+        if choice in ("1", "2", "3"):
+            new_provider = PROVIDERS[int(choice) - 1]
             break
 
         print("Please choose 1, 2, or 3.")
 
-    # If not switching, nothing to do
     if new_provider == current:
         print()
         print("Already using this provider.")
         print()
         return
 
-    # Check if key is already stored
     key = get_api_key(config, new_provider)
 
     if not key:
         print()
-        print(f"No API key stored for {PROVIDER_NAMES[new_provider]}.")
+        print(
+            f"No API key stored for "
+            f"{PROVIDER_NAMES[new_provider]}."
+        )
+
         key = prompt_for_key(new_provider)
 
         if not key:
@@ -201,12 +205,186 @@ def switch_provider():
         config["keys"][new_provider] = key
 
     config["provider"] = new_provider
+
     save_config(config)
 
     print()
     print(f"✓ Switched to {PROVIDER_NAMES[new_provider]}.")
     print()
 
+
+# Plugin system
+
+def validate_plugin_name(name):
+    return bool(
+        re.fullmatch(r"[a-zA-Z0-9_-]+", name)
+    )
+
+
+def get_plugin_path(name):
+    if not validate_plugin_name(name):
+        return None
+
+    return SKILLS_DIR / name
+
+
+def get_plugin(name):
+    path = get_plugin_path(name)
+
+    if path is None:
+        return None
+
+    skill_file = path / "SKILL.md"
+
+    if not skill_file.is_file():
+        return None
+
+    try:
+        return skill_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def list_plugins():
+    if not SKILLS_DIR.exists():
+        return []
+
+    plugins = []
+
+    for directory in sorted(SKILLS_DIR.iterdir()):
+        if not directory.is_dir():
+            continue
+
+        skill_file = directory / "SKILL.md"
+
+        if skill_file.is_file():
+            plugins.append(directory.name)
+
+    return plugins
+
+
+def show_plugins():
+    plugins = list_plugins()
+
+    print()
+    print("Installed Plugins")
+    print("-----------------")
+    print()
+
+    if not plugins:
+        print("No plugins installed.")
+        print()
+        print("Create one using /plugin-create.")
+        print()
+        return
+
+    for plugin in plugins:
+        print(f"  /{plugin}")
+
+    print()
+    print(f"{len(plugins)} plugin(s) installed.")
+    print()
+
+
+def create_plugin():
+    print()
+    print("Create Plugin")
+    print("-------------")
+    print()
+
+    name = input("Plugin name: ").strip().lower()
+
+    if not validate_plugin_name(name):
+        print("Invalid name. Use letters, numbers, - or _.")
+        return
+
+    SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    plugin_path = get_plugin_path(name)
+
+    if plugin_path.exists():
+        print("A plugin with that name already exists.")
+        return
+
+    description = input("Description: ").strip()
+
+    print()
+    print("Enter the plugin instructions.")
+    print("Write END on a separate line when finished.")
+    print()
+
+    instructions = []
+
+    while True:
+        try:
+            line = input()
+
+        except (KeyboardInterrupt, EOFError):
+            print()
+            print("Plugin creation cancelled.")
+            return
+
+        if line.strip() == "END":
+            break
+
+        instructions.append(line)
+
+    content = (
+        "---\n"
+        f"name: {name}\n"
+        f"description: {description}\n"
+        "---\n\n"
+        + "\n".join(instructions).strip()
+        + "\n"
+    )
+
+    try:
+        plugin_path.mkdir(parents=True)
+        (plugin_path / "SKILL.md").write_text(
+            content,
+            encoding="utf-8"
+        )
+
+    except OSError as e:
+        print(f"Error creating plugin: {e}")
+        return
+
+    print()
+    print(f"✓ Plugin '{name}' created.")
+    print()
+    print(f"Activate it using /{name}")
+    print()
+
+
+def activate_plugin(name):
+    plugin = get_plugin(name)
+
+    if plugin is None:
+        print(f"Plugin '{name}' could not be loaded.")
+        print("Make sure its directory contains SKILL.md.")
+        return
+
+    print()
+    print(f"Plugin activated: {name}")
+    print()
+
+    task = input("What would you like to do? ").strip()
+
+    if not task:
+        print("No task provided.")
+        return
+
+    config = load_config()
+
+    agent(
+        task,
+        config,
+        plugin_name=name,
+        plugin_instructions=plugin
+    )
+
+
+# Project tools
 
 def list_files():
     try:
@@ -238,7 +416,9 @@ def write_file(path, content):
         file = Path(path)
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(content, encoding="utf-8")
+
         return f"Successfully wrote {path}"
+
     except Exception as e:
         return f"Error writing {path}: {e}"
 
@@ -254,6 +434,7 @@ def delete_file(path):
             return "Refusing to delete directories."
 
         file.unlink()
+
         return f"Successfully deleted {path}"
 
     except Exception as e:
@@ -295,6 +476,8 @@ TOOLS = {
 }
 
 
+# AI tool definitions
+
 def tool_definitions():
     return [
         {
@@ -316,9 +499,7 @@ def tool_definitions():
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "path": {
-                            "type": "string"
-                        }
+                        "path": {"type": "string"}
                     },
                     "required": ["path"]
                 }
@@ -332,12 +513,8 @@ def tool_definitions():
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "path": {
-                            "type": "string"
-                        },
-                        "content": {
-                            "type": "string"
-                        }
+                        "path": {"type": "string"},
+                        "content": {"type": "string"}
                     },
                     "required": ["path", "content"]
                 }
@@ -351,9 +528,7 @@ def tool_definitions():
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "path": {
-                            "type": "string"
-                        }
+                        "path": {"type": "string"}
                     },
                     "required": ["path"]
                 }
@@ -367,9 +542,7 @@ def tool_definitions():
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "command": {
-                            "type": "string"
-                        }
+                        "command": {"type": "string"}
                     },
                     "required": ["command"]
                 }
@@ -378,13 +551,15 @@ def tool_definitions():
     ]
 
 
+# Provider requests
+
 def openrouter_request(messages, config):
     import requests
 
     response = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={
-            "Authorization": f"Bearer {config['keys'][config['provider']]}",
+            "Authorization": f"Bearer {get_api_key(config, 'openrouter')}",
             "Content-Type": "application/json"
         },
         json={
@@ -397,6 +572,7 @@ def openrouter_request(messages, config):
     )
 
     response.raise_for_status()
+
     return response.json()
 
 
@@ -406,7 +582,7 @@ def gemini_request(messages, config):
     response = requests.post(
         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         headers={
-            "Authorization": f"Bearer {config['keys'][config['provider']]}",
+            "Authorization": f"Bearer {get_api_key(config, 'gemini')}",
             "Content-Type": "application/json"
         },
         json={
@@ -419,6 +595,7 @@ def gemini_request(messages, config):
     )
 
     response.raise_for_status()
+
     return response.json()
 
 
@@ -428,7 +605,7 @@ def openai_request(messages, config):
     response = requests.post(
         "https://api.openai.com/v1/chat/completions",
         headers={
-            "Authorization": f"Bearer {config['keys'][config['provider']]}",
+            "Authorization": f"Bearer {get_api_key(config, 'openai')}",
             "Content-Type": "application/json"
         },
         json={
@@ -441,6 +618,7 @@ def openai_request(messages, config):
     )
 
     response.raise_for_status()
+
     return response.json()
 
 
@@ -459,6 +637,8 @@ def ask_ai(messages, config):
     raise RuntimeError(f"Unknown provider: {provider}")
 
 
+# Agent
+
 def execute_tool(name, arguments):
     if name not in TOOLS:
         return f"Unknown tool: {name}"
@@ -475,18 +655,39 @@ def execute_tool(name, arguments):
 
     try:
         return TOOLS[name](**arguments)
+
     except Exception as e:
         return f"Tool error: {e}"
 
 
-def agent(user_message, config):
+def agent(
+    user_message,
+    config,
+    plugin_name=None,
+    plugin_instructions=None
+):
     global plan_mode
 
     system_content = SYSTEM_PROMPT
 
+    if plugin_instructions:
+        system_content += f"""
+
+ACTIVE PLUGIN: {plugin_name}
+
+The following plugin contains additional instructions.
+Follow them when working on the user's task.
+
+--- PLUGIN INSTRUCTIONS ---
+
+{plugin_instructions}
+
+--- END PLUGIN INSTRUCTIONS ---
+"""
+
     if plan_mode:
         system_content += """
-        
+
 PLAN MODE: You are in read-only planning mode.
 
 You may inspect files using list_files and read_file.
@@ -515,6 +716,7 @@ Do not attempt to perform the implementation.
     while True:
         try:
             response = ask_ai(messages, config)
+
         except Exception as e:
             print(f"\nAPI error: {e}")
             return
@@ -522,6 +724,7 @@ Do not attempt to perform the implementation.
         try:
             choice = response["choices"][0]
             message = choice["message"]
+
         except (KeyError, IndexError, TypeError):
             print("\nAPI error: Invalid response from provider.")
             return
@@ -531,7 +734,7 @@ Do not attempt to perform the implementation.
         messages.append(message)
 
         if not tool_calls:
-            content = message.get("content", "")
+            content = message.get("content") or ""
 
             print()
 
@@ -562,10 +765,12 @@ Do not attempt to perform the implementation.
                 {
                     "role": "tool",
                     "tool_call_id": tool_call["id"],
-                    "content": result
+                    "content": str(result)
                 }
             )
 
+
+# Main
 
 def main():
     global plan_mode
@@ -621,19 +826,25 @@ def main():
         print()
         return
 
-    # Check if API key exists for the current provider
     if not get_api_key(config, config["provider"]):
-        print(f"No API key found for {PROVIDER_NAMES.get(config['provider'], config['provider'])}.")
-        print()
-        key = prompt_for_key(config["provider"])
+        provider = config["provider"]
+
+        print(
+            f"No API key found for "
+            f"{PROVIDER_NAMES.get(provider, provider)}."
+        )
+
+        key = prompt_for_key(provider)
 
         if not key:
             print("No API key entered. Exiting.")
             return
 
         config.setdefault("keys", {})
-        config["keys"][config["provider"]] = key
+        config["keys"][provider] = key
+
         save_config(config)
+
         print("✓ API key saved.")
         print()
 
@@ -666,11 +877,17 @@ def main():
 
         if user_input == "/help":
             print()
-            print("/help     Show this help")
-            print("/exit     Exit PurpleCli")
-            print("/quit     Exit PurpleCli")
-            print("/plan     Toggle plan mode")
-            print("/switch   Switch AI provider")
+            print("/help             Show this help")
+            print("/exit             Exit PurpleCli")
+            print("/quit             Exit PurpleCli")
+            print("/plan             Toggle plan mode")
+            print("/switch           Switch AI provider")
+            print("/plugins          List installed plugins")
+            print("/plugin-create    Create a new plugin")
+            print("/plugin-name      Activate a plugin")
+            print()
+            print("Replace plugin-name with an installed plugin name.")
+            print("Example: /roblox-ui")
             print()
             continue
 
@@ -683,17 +900,33 @@ def main():
                     "Plan mode activated. "
                     "Run /plan again to end plan mode."
                 )
-                print()
             else:
                 print()
                 print("Plan mode deactivated.")
-                print()
 
+            print()
             continue
 
         if user_input == "/switch":
             switch_provider()
+            config = load_config()
             continue
+
+        if user_input == "/plugins":
+            show_plugins()
+            continue
+
+        if user_input == "/plugin-create":
+            create_plugin()
+            continue
+
+        # Dynamic plugin activation
+        if user_input.startswith("/"):
+            command = user_input[1:].split(maxsplit=1)[0]
+
+            if get_plugin(command) is not None:
+                activate_plugin(command)
+                continue
 
         agent(user_input, config)
 
