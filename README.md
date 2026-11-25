@@ -1,4 +1,4 @@
-# PurpleCli
+# PurplxClx
 
 <p align="center">
   <strong>A lightweight AI coding agent for your terminal.</strong>
